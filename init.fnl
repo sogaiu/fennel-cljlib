@@ -52,6 +52,9 @@ non-ASCII strings."})
 (local insert table.insert)
 (local _unpack (or table.unpack _G.unpack))
 
+(local lazy
+  (require (if (and ... (not= ... :init)) (.. ... :.lazy-seq) :lazy-seq)))
+
 (import-macros {: defn : into : empty
                 : when-let : if-let : when-some : if-some}
                (if (and ... (not= ... :init)) (.. ... :.init-macros) :init-macros))
@@ -386,64 +389,31 @@ Sets additional metadata for function `vector?' to work.
   (setmetatable args {:cljlib/type :seq}))
 
 (defn core.seq
-  "Create sequential table.
+  "Create a lazy sequence.
 
-Transforms original table to sequential table of key value pairs
-stored as sequential tables in linear time.  If `col' is an
-associative table, returns sequential table of vectors with key and
-value.  If `col' is sequential table, returns its shallow copy.  If
-`col' is string, return sequential table of its codepoints.
+Creates a sequence from original table.  If `col' is an associative
+table, returns a sequence of vectors with key and value.  If `col' is
+a sequential table or a string, returns a sequence of its elements.
 
 # Examples
-Sequential tables remain as is:
+Elements from sequential tables remain in the same order:
 
 ``` fennel
 (seq [1 2 3 4])
-;; [1 2 3 4]
+;; @seq(1 2 3 4)
 ```
 
-Associative tables are transformed to format like this `[[key1 value1]
-... [keyN valueN]]` and order is non deterministic:
+Associative tables are transformed to the format like this `@seq([key1
+value1] ... [keyN valueN])` and the order is non deterministic:
 
 ``` fennel
 (seq {:a 1 :b 2 :c 3})
-;; [[:b 2] [:a 1] [:c 3]]
+;; @seq([:b 2] [:a 1] [:c 3])
 ```
 
-See `into' macros for transforming this back to associative table.
-Additionally you can use `conj' and `apply' with
-`hash-map':
-
-``` fennel
-(apply conj (hash-map) [:c 3] [[:a 1] [:b 2]])
-;; => {:a 1 :b 2 :c 3}
-```"
+See `into' macros for transforming this back to associative table."
   [col]
-  (let [res (empty [])]
-    (match (type col)
-      :table (let [m (or (getmetatable col) {})]
-               (when-some [_ ((or m.cljlib/next next) col)]
-                 (var assoc? false)
-                 (let [assoc-res (empty [])]
-                   (each [k v (pairs col)]
-                     (if (and (not assoc?)
-                              (map? col))
-                         (set assoc? true))
-                     (insert res v)
-                     (insert assoc-res [k v]))
-                   (if assoc? assoc-res res))))
-      :string (if _G.utf8
-                  (let [char _G.utf8.char]
-                    (each [_ b (_G.utf8.codes col)]
-                      (insert res (char b)))
-                    res)
-                  (do (io.stderr:write
-                       "WARNING: utf8 module unavailable, seq function will not work for non-unicode strings\n")
-                      (each [b (col:gmatch ".")]
-                        (insert res b))
-                      res))
-      :nil nil
-      _ (error (.. "expected table, string or nil, got " (type col)) 2))))
+  (lazy.seq col))
 
 (defn core.kvseq
   "Transforms any table `col' to key-value sequence."
@@ -469,18 +439,20 @@ Additionally you can use `conj' and `apply' with
       _ (error (.. "expected table, string or nil, got " (type col)) 2))))
 
 (defn core.first
-  "Return first element of a table. Calls `seq' on its argument."
+  "Return first element of a `col`. Calls `seq' on its argument."
   [col]
-  (when-some [col (seq col)]
-    (. col 1)))
+  (lazy.first col))
 
 (defn core.rest
-  "Returns table of all elements of a table but the first one. Calls
-  `seq' on its argument."
+  "Returns a sequence of all elements of a `col` but the first
+  one. Calls `seq' on its argument."
   [col]
-  (if-some [col (seq col)]
-    (vector (_unpack col 2))
-    (empty [])))
+  (lazy.rest col))
+
+(defn core.next
+  "Returns "
+  [col]
+  (lazy.next col))
 
 (defn core.last
   "Returns the last element of a table. Calls `seq' on its argument."
@@ -570,24 +542,13 @@ See `hash-map' for creating empty associative tables."
         (consj (doto tbl (insert 1 x)) (_unpack xs)))))
 
 (defn core.cons
-  "Insert `x' to `tbl' at the front.  Calls `seq' on `tbl'."
-  [x tbl]
-  (if-some [x x]
-    (doto (or (seq tbl) (empty []))
-      (insert 1 x))
-    tbl))
+  "Insert `x' to `col' at the front.  Calls `seq' on `col'."
+  [x col]
+  (lazy.cons x (lazy.seq seq)))
 
-(defn core.concat
+(defn core.concat [& cols]
   "Concatenate tables."
-  ([] nil)
-  ([x] (or (seq x) (empty [])))
-  ([x y] (let [to (or (seq x) (empty []))
-               from (or (seq y) (empty []))]
-           (each [_ v (ipairs from)]
-             (insert to v))
-           to))
-  ([x y & xs]
-   (apply concat (concat x y) xs)))
+  (apply lazy.concat cols))
 
 (defn core.reduce
   "Reduce collection `col' using function `f' and optional initial value `val'.
@@ -713,6 +674,43 @@ Reduce table by adding values from keys that start with letter `a':
                 (lua :break)))))
   res)
 
+(defn core.map
+  "Maps function `f' over one or more collections.
+
+Accepts arbitrary amount of collections, calls `seq' on each of it.
+Function `f' must take the same amount of arguments as the amount of
+tables, passed to `mapv'. Applies `f' over first value of each
+table. Then applies `f' to second value of each table. Continues until
+any of the tables is exhausted. All remaining values are
+ignored. Returns a sequential table of results.
+
+# Examples
+Map `string.upcase' over the string:
+
+``` fennel
+(mapv string.upper \"string\")
+;; => [\"S\" \"T\" \"R\" \"I\" \"N\" \"G\"]
+```
+
+Map `mul' over two tables:
+
+``` fennel
+(mapv mul [1 2 3 4] [1 0 -1])
+;; => [1 0 -3]
+```
+
+Basic `zipmap' implementation:
+
+``` fennel
+(import-macros {: into} :init-macros)
+(fn zipmap [keys vals]
+  (into {} (mapv vector keys vals)))
+
+(zipmap [:a :b :c] [1 2 3 4])
+;; => {:a 1 :b 2 :c 3}
+```"
+  [f col & colls] (apply lazy.map f col colls))
+
 (defn core.mapv
   "Maps function `f' over one or more collections.
 
@@ -748,77 +746,24 @@ Basic `zipmap' implementation:
 (zipmap [:a :b :c] [1 2 3 4])
 ;; => {:a 1 :b 2 :c 3}
 ```"
-  ([f col]
-   (local res (empty []))
-   (each [_ v (ipairs (or (seq col) (empty [])))]
-     (when-some [tmp (f v)]
-       (insert res tmp)))
-   res)
-  ([f col1 col2]
-   (let [res (empty [])
-         col1 (or (seq col1) (empty []))
-         col2 (or (seq col2) (empty []))]
-     (var (i1 v1) (next col1))
-     (var (i2 v2) (next col2))
-     (while (and i1 i2)
-       (when-some [tmp (f v1 v2)]
-         (insert res tmp))
-       (set (i1 v1) (next col1 i1))
-       (set (i2 v2) (next col2 i2)))
-     res))
-  ([f col1 col2 col3]
-   (let [res (empty [])
-         col1 (or (seq col1) (empty []))
-         col2 (or (seq col2) (empty []))
-         col3 (or (seq col3) (empty []))]
-     (var (i1 v1) (next col1))
-     (var (i2 v2) (next col2))
-     (var (i3 v3) (next col3))
-     (while (and i1 i2 i3)
-       (when-some [tmp (f v1 v2 v3)]
-         (insert res tmp))
-       (set (i1 v1) (next col1 i1))
-       (set (i2 v2) (next col2 i2))
-       (set (i3 v3) (next col3 i3)))
-     res))
-  ([f col1 col2 col3 & cols]
-   (let [step (fn step [cols]
-                (if (->> cols
-                         (mapv #(not= (next $) nil))
-                         (reduce #(and $1 $2)))
-                    (cons (mapv #(. (or (seq $) (empty [])) 1) cols)
-                          (step (mapv #(do [(_unpack $ 2)]) cols)))
-                    (empty [])))
-         res (empty [])]
-     (each [_ v (ipairs (step (consj cols col3 col2 col1)))]
-       (when-some [tmp (apply f v)]
-         (insert res tmp)))
-     res)))
+  [f & cols]
+  (into (vector) (apply lazy.map f cols)))
 
 (defn core.filter
   "Returns a sequential table of the items in `col' for which `pred'
   returns logical true."
   [pred col]
-  (if-let [col (seq col)]
-    (let [f (. col 1)
-          r [(_unpack col 2)]]
-      (if (pred f)
-          (cons f (filter pred r))
-          (filter pred r)))
-    (empty [])))
+  (lazy.filter pred col))
 
 (defn core.every?
-  "Test if every item in `tbl' satisfies the `pred'."
-  [pred tbl]
-  (if (empty? tbl) true
-      (pred (. tbl 1)) (every? pred [(_unpack tbl 2)])
-      false))
+  "Test if every item in `col' satisfies the `pred'."
+  [pred col]
+  (lazy.every? pred col))
 
 (defn core.some
-  "Test if any item in `tbl' satisfies the `pred'."
-  [pred tbl]
-  (when-let [tbl (seq tbl)]
-    (or (pred (. tbl 1)) (some pred [(_unpack tbl 2)]))))
+  "Test if any item in `col' satisfies the `pred'."
+  [pred col]
+  (lazy.some? pred col))
 
 (defn core.not-any?
   "Test if no item in `tbl' satisfy the `pred'."
@@ -827,31 +772,20 @@ Basic `zipmap' implementation:
 
 (defn core.range
   "return range of of numbers from `lower' to `upper' with optional `step'."
-  ([upper] (range 0 upper 1))
-  ([lower upper] (range lower upper 1))
-  ([lower upper step]
-   (let [res (empty [])]
-     (for [i lower (- upper step) step]
-       (insert res i))
-     res)))
+  ([upper] (lazy.range 0 upper 1))
+  ([lower upper] (lazy.range lower upper 1))
+  ([lower upper step] (lazy.range lower upper step)))
 
 (defn core.reverse
-  "Returns table with same items as in `tbl' but in reverse order."
-  [tbl]
-  (when-some [tbl (seq tbl)]
-    (reduce consj (empty []) tbl)))
+  "Returns table with same items as in `col' but in reverse order."
+  [col]
+  (lazy.reverse col))
 
 (defn core.take
   "Returns a sequence of the first `n' items in `col', or all items if
 there are fewer than `n'."
   [n col]
-  (if (= n 0)
-      []
-      (pos-int? n)
-      (if-let [s (seq col)]
-        (cons (first s) (take (dec n) (rest s)))
-        nil)
-      (error "expected positive integer as first argument" 2)))
+  (lazy.take n col))
 
 (defn core.nthrest
   "Returns the nth rest of `col', `col' when `n' is 0.
@@ -866,7 +800,7 @@ there are fewer than `n'."
 ```
 "
   [col n]
-  [(_unpack col (inc n))])
+  (lazy.nthrest col n))
 
 (defn core.partition
   "Returns a sequence of sequences of `n' items each, at offsets step
@@ -901,21 +835,11 @@ Additional padding can be used to supply insufficient elements:
 (assert-eq (partition 3 3 [3 2 1] [1 2 3 4]) [[1 2 3] [4 3 2]])
 ```"
   ([n col]
-   (partition n n col))
+   (lazy.partition n n col))
   ([n step col]
-   (if-let [s (seq col)]
-     (let [p (take n s)]
-       (if (= n (length p))
-           (cons p (partition n step (nthrest s step)))
-           nil))
-     nil))
+   (lazy.partition n step col))
   ([n step pad col]
-   (if-let [s (seq col)]
-     (let [p (take n s)]
-       (if (= n (length p))
-           (cons p (partition n step pad (nthrest s step)))
-           [(take n (concat p pad))]))
-     nil)))
+   (lazy.partition n step pad col)))
 
 (local sequence-doc-order
        [:vector :seq :kvseq :first :rest :last :butlast
