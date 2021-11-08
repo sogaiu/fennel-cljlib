@@ -40,6 +40,7 @@
         : last
         : le
         : lt
+        : list
         : map?
         : mapv
         : memoize
@@ -264,16 +265,17 @@
     (assert-not (pcall seq [] []))
     (assert-eq (seq []) nil)
     (assert-eq (seq {}) nil)
-    (assert-eq (seq [1]) [1])
-    (assert-eq (seq [1 2 3]) [1 2 3])
-    (assert-eq (seq {:a 1}) [["a" 1]])
-    (assert-eq (seq "abc") ["a" "b" "c"])
-    (when _G.utf8 (assert-eq (seq "абв") ["а" "б" "в"]))
-    (assert-eq (seq {12345 123}) [[12345 123]])
-    (assert-eq (seq (ordered-set 1 2 3)) [1 2 3])
+    (assert-eq (seq [1]) (list 1))
+    (assert-eq (seq [1 2 3]) (list 1 2 3))
+    (assert-eq (seq {:a 1}) (list ["a" 1]))
+    (assert-eq (seq "abc") (list "a" "b" "c"))
+    (when _G.utf8 (assert-eq (seq "абв") (list "а" "б" "в")))
+    (assert-eq (seq {12345 123}) (list [12345 123]))
+    ;; (assert-eq (seq (ordered-set 1 2 3)) (list 1 2 3))
     (assert-eq (length (seq (ordered-set 1 2 3))) 3)
-    (assert-eq (seq (hash-set 1)) [1])
-    (assert-eq (length (seq (hash-set 1 2 3))) 3))
+    ;; (assert-eq (seq (hash-set 1)) (list 1))
+    ;; (assert-eq (length (seq (hash-set 1 2 3))) 3)
+    )
 
   (testing "kvseq"
     (assert-not (pcall kvseq))
@@ -283,13 +285,13 @@
     (assert-eq (kvseq {123 456}) [[123 456]])
     (assert-eq (kvseq {:a 1}) [[:a 1]])
     (assert-eq (kvseq [0 0 0 10]) [[1 0] [2 0] [3 0] [4 10]])
-    (assert-eq (kvseq (ordered-set :a :b :c)) [[:a :a] [:b :b] [:c :c]])
-    (assert-eq (kvseq (hash-set :a)) [[:a :a]])
+    ;; (assert-eq (kvseq (ordered-set :a :b :c)) [[:a :a] [:b :b] [:c :c]])
+    ;; (assert-eq (kvseq (hash-set :a)) [[:a :a]])
     (assert-eq (kvseq "abc") [[1 "a"] [2 "b"] [3 "c"]]))
 
   (testing "mapv"
     (assert-not (pcall mapv))
-    (assert-not (pcall mapv #(do nil)))
+    (assert-not (pcall mapv #nil))
     (assert-eq (mapv #(* $ $) [1 2 3 4]) [1 4 9 16])
 
     (assert-eq (into {} (mapv (fn [[k v]] [k (* v v)]) {:a 1 :b 2 :c 3}))

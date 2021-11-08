@@ -544,7 +544,10 @@ See `hash-map' for creating empty associative tables."
 (defn core.cons
   "Insert `x' to `col' at the front.  Calls `seq' on `col'."
   [x col]
-  (lazy.cons x (lazy.seq seq)))
+  (lazy.cons x (lazy.seq col)))
+
+(defn core.list [& xs]
+  (apply lazy.list xs))
 
 (defn core.concat [& cols]
   "Concatenate tables."
@@ -679,7 +682,7 @@ Reduce table by adding values from keys that start with letter `a':
 
 Accepts arbitrary amount of collections, calls `seq' on each of it.
 Function `f' must take the same amount of arguments as the amount of
-tables, passed to `mapv'. Applies `f' over first value of each
+tables, passed to `map'. Applies `f' over first value of each
 table. Then applies `f' to second value of each table. Continues until
 any of the tables is exhausted. All remaining values are
 ignored. Returns a sequential table of results.
@@ -688,15 +691,15 @@ ignored. Returns a sequential table of results.
 Map `string.upcase' over the string:
 
 ``` fennel
-(mapv string.upper \"string\")
-;; => [\"S\" \"T\" \"R\" \"I\" \"N\" \"G\"]
+(map string.upper \"string\")
+;; => @seq(\"S\" \"T\" \"R\" \"I\" \"N\" \"G\")
 ```
 
 Map `mul' over two tables:
 
 ``` fennel
-(mapv mul [1 2 3 4] [1 0 -1])
-;; => [1 0 -3]
+(map mul [1 2 3 4] [1 0 -1])
+;; => @seq(1 0 -3)
 ```
 
 Basic `zipmap' implementation:
@@ -704,7 +707,7 @@ Basic `zipmap' implementation:
 ``` fennel
 (import-macros {: into} :init-macros)
 (fn zipmap [keys vals]
-  (into {} (mapv vector keys vals)))
+  (into {} (map vector keys vals)))
 
 (zipmap [:a :b :c] [1 2 3 4])
 ;; => {:a 1 :b 2 :c 3}
@@ -746,8 +749,9 @@ Basic `zipmap' implementation:
 (zipmap [:a :b :c] [1 2 3 4])
 ;; => {:a 1 :b 2 :c 3}
 ```"
-  [f & cols]
-  (into (vector) (apply lazy.map f cols)))
+  [f col & cols]
+  (icollect [_ v (pairs (apply lazy.map f col cols)) :into (vector)]
+    v))
 
 (defn core.filter
   "Returns a sequential table of the items in `col' for which `pred'
@@ -785,6 +789,8 @@ Basic `zipmap' implementation:
   "Returns a sequence of the first `n' items in `col', or all items if
 there are fewer than `n'."
   [n col]
+  (assert (= :number (type n)) "n must be a number")
+  (assert (>= n 0) "n must be a positive number")
   (lazy.take n col))
 
 (defn core.nthrest
