@@ -753,6 +753,9 @@ Basic `zipmap' implementation:
   (icollect [_ v (pairs (apply lazy.map f col cols)) :into (vector)]
     v))
 
+(defn core.zipmap [keys vals]
+  (lazy.zipmap keys vals))
+
 (defn core.filter
   "Returns a sequential table of the items in `col' for which `pred'
   returns logical true."
@@ -770,9 +773,9 @@ Basic `zipmap' implementation:
   (lazy.some? pred col))
 
 (defn core.not-any?
-  "Test if no item in `tbl' satisfy the `pred'."
-  [pred tbl]
-  (some #(not (pred $)) tbl))
+  "Test if no item in `col' satisfy the `pred'."
+  [pred col]
+  (lazy.some? #(not (pred $)) col))
 
 (defn core.range
   "return range of of numbers from `lower' to `upper' with optional `step'."
@@ -846,6 +849,73 @@ Additional padding can be used to supply insufficient elements:
    (lazy.partition n step col))
   ([n step pad col]
    (lazy.partition n step pad col)))
+
+(defn core.partition-all
+  "Returns a lazy sequence of lists like `partition`, but may include
+partitions with fewer than n items at the end."
+  ([n col]
+   (lazy.partition-all n n col))
+  ([n step col]
+   (lazy.partition-all n step col)))
+
+(defn core.partition-by
+  "Applies `f` to each value in `col`, splitting it each time `f`
+   returns a new value.  Returns a lazy seq of partitions."
+  [f col]
+  (lazy.partition-by f col))
+
+(defn core.reductions
+  "Returns a lazy seq of the intermediate values of the reduction (as
+per reduce) of `coll` by `f`, starting with `init`."
+  ([f col] (lazy.reductions f col))
+  ([f init col] (lazy.reductions f init col)))
+
+(defn core.distinct
+  "Returns a lazy sequence of the elements of the `col` without
+duplicates.  Comparison is done by equality."
+  [col]
+  (lazy.distinct col))
+
+(defn core.line-seq
+  "Accepts a `file` handle, and creates a lazy sequence of lines using
+`lines` metamethod.
+
+# Examples
+
+Lazy sequence of file lines may seem similar to an iterator over a
+file, but the main difference is that sequence can be shared onve
+realized, and iterator can't.  Lazy sequence can be consumed in
+iterator style with the `doseq` macro.
+
+Bear in mind, that since the sequence is lazy it should be realized or
+truncated before the file is closed:
+
+```fennel
+(let [lines (with-open [f (io.open \"init.fnl\" :r)]
+              (line-seq f))]
+  ;; this errors because only first line was realized, but the file
+  ;; was closed before the rest of lines were cached
+  (assert-not (pcall next lines)))
+```
+
+Sequence is realized with `doall` before file was closed and can be shared:
+
+``` fennel
+(let [lines (with-open [f (io.open \"init.fnl\" :r)]
+              (doall (line-seq f)))]
+  (assert-is (pcall next lines)))
+```
+
+Infinite files can't be fully realized, but can be partially realized
+with `take`:
+
+``` fennel
+(let [lines (with-open [f (io.open \"/dev/urandom\" :r)]
+              (doall (take 3 (line-seq f))))]
+  (assert-is (pcall next lines)))
+```"
+  [filehandle]
+  (lazy.line-seq filehandle))
 
 (local sequence-doc-order
        [:vector :seq :kvseq :first :rest :last :butlast
